@@ -266,7 +266,9 @@ function syncServer() {
       `刪除分類：${(sum.deletedCategories || []).length}\n` +
       `新增頻道：${(sum.createdChannels || []).length}\n` +
       `更新頻道：${(sum.updatedChannels || []).length}\n` +
-      `刪除頻道：${(sum.deletedChannels || []).length}`
+      `刪除頻道：${(sum.deletedChannels || []).length}` +
+      ((sum.deleteErrors || []).length ?
+        `\n⚠ 無法刪除：${sum.deleteErrors.length} 項（請確認權限或系統頻道）` : '')
     alert(msg)
   }).catch(err => {
     syncing.value = false

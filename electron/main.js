@@ -260,12 +260,17 @@ ipcMain.handle('sync-guild-structure', async (event, payload) => {
       updatedChannels: [],
       deletedChannels: [],
       deletedCategories: [],
-      skipped: []
+      skipped: [],
+      deleteErrors: []
     };
 
-    // 先處理分類
+    // 先處理分類（排除虛擬的 uncategorized）
+    const realCategories = categories.filter(cat => cat.id !== 'uncategorized');
+    console.log('[sync] payload categories:', categories.map(c => ({ id: c.id, name: c.name })));
+    console.log('[sync] real categories to process:', realCategories.map(c => ({ id: c.id, name: c.name })));
+    
     const categoryIdMap = new Map(); // localId -> guildCategory
-    for (const cat of categories) {
+    for (const cat of realCategories) {
       if (cat.id && categoryById.has(cat.id)) {
         categoryIdMap.set(cat.id, categoryById.get(cat.id));
         continue;
@@ -287,10 +292,49 @@ ipcMain.handle('sync-guild-structure', async (event, payload) => {
 
     // 收集期望保留的分類 ID
     const desiredCategoryIds = new Set(Array.from(categoryIdMap.values()).map(c => c.id));
+    console.log('[sync] desired category IDs to keep:', Array.from(desiredCategoryIds));
+    console.log('[sync] existing category IDs:', all.filter(c => c.type === ChannelType.GuildCategory).map(c => ({ id: c.id, name: c.name })));
 
     // 然後處理頻道
     const desiredChannelKeys = new Set();
     for (const cat of categories) {
+      // 如果是 uncategorized，parent 為 null
+      if (cat.id === 'uncategorized') {
+        const parentKey = 'root';
+        for (const ch of cat.channels || []) {
+          let desiredType = typeMap[ch.type] || ChannelType.GuildText;
+          if (desiredType === ChannelType.GuildAnnouncement && !guild.features?.includes('NEWS')) {
+            desiredType = ChannelType.GuildText;
+          }
+          if (!allowedTypes.has(desiredType)) {
+            desiredType = ChannelType.GuildText;
+          }
+          const existingById = ch.id ? channelById.get(ch.id) : null;
+          const existingByKey = channelByKey.get(`${(ch.name || '').toLowerCase()}::${parentKey}`);
+          const target = existingById || existingByKey;
+          
+          desiredChannelKeys.add(`${(ch.name || '').toLowerCase()}::${parentKey}`);
+          
+          if (!target) {
+            const created = await guild.channels.create({
+              name: ch.name || '未命名頻道',
+              type: desiredType,
+              parent: undefined,
+              topic: ch.topic || undefined
+            });
+            summary.createdChannels.push({ name: created.name, id: created.id, parent: '未分類' });
+            continue;
+          }
+          
+          const updates = [];
+          if (target.name !== ch.name && ch.name) updates.push(target.setName(ch.name));
+          if (typeof ch.topic === 'string' && target.topic !== ch.topic) updates.push(target.setTopic(ch.topic));
+          if (target.parentId !== null) updates.push(target.setParent(null));
+          await Promise.all(updates);
+          summary.updatedChannels.push({ name: target.name, id: target.id });
+        }
+        continue;
+      }
       const parent = categoryIdMap.get(cat.id) || null;
       const parentId = parent?.id || null;
       const parentKey = parentId || 'root';
@@ -338,16 +382,26 @@ ipcMain.handle('sync-guild-structure', async (event, payload) => {
     for (const ch of all.filter(c => c.type !== ChannelType.GuildCategory)) {
       const key = `${ch.name.toLowerCase()}::${ch.parentId || 'root'}`;
       if (!desiredChannelKeys.has(key)) {
-        await ch.delete('Sync remove extra channel');
-        summary.deletedChannels.push({ name: ch.name, id: ch.id });
+        try {
+          await ch.delete('Sync remove extra channel');
+          summary.deletedChannels.push({ name: ch.name, id: ch.id });
+        } catch (err) {
+          console.error('[sync] delete channel failed', ch.id, ch.name, err);
+          summary.deleteErrors.push({ kind: 'channel', name: ch.name, id: ch.id, error: err.message });
+        }
       }
     }
 
     // 刪除不存在於 payload 的舊分類（同時會移除其子頻道）
     for (const cat of all.filter(c => c.type === ChannelType.GuildCategory)) {
       if (!desiredCategoryIds.has(cat.id)) {
-        await cat.delete('Sync remove extra category');
-        summary.deletedCategories.push({ name: cat.name, id: cat.id });
+        try {
+          await cat.delete('Sync remove extra category');
+          summary.deletedCategories.push({ name: cat.name, id: cat.id });
+        } catch (err) {
+          console.error('[sync] delete category failed', cat.id, cat.name, err);
+          summary.deleteErrors.push({ kind: 'category', name: cat.name, id: cat.id, error: err.message });
+        }
       }
     }
 
