@@ -64,7 +64,7 @@
         <v-icon start icon="mdi-download" />
         讀取頻道
       </v-btn>
-      <v-btn class="ml-2" color="primary" :disabled="!selectedServer" @click="syncServer">
+      <v-btn class="ml-2" color="primary" :disabled="!selectedServer || syncing" :loading="syncing" @click="syncServer">
         <v-icon start icon="mdi-sync" />
         同步
       </v-btn>
@@ -253,7 +253,9 @@ function syncServer() {
     }))
   }
 
+  syncing.value = true
   syncGuildStructure(payload).then(res => {
+    syncing.value = false
     if (!res.success) {
       alert('同步失敗：' + (res.error || '未知錯誤'))
       return
@@ -261,10 +263,13 @@ function syncServer() {
     const sum = res.summary || {}
     const msg = `同步完成\n\n` +
       `新增分類：${(sum.createdCategories || []).length}\n` +
+      `刪除分類：${(sum.deletedCategories || []).length}\n` +
       `新增頻道：${(sum.createdChannels || []).length}\n` +
-      `更新頻道：${(sum.updatedChannels || []).length}`
+      `更新頻道：${(sum.updatedChannels || []).length}\n` +
+      `刪除頻道：${(sum.deletedChannels || []).length}`
     alert(msg)
   }).catch(err => {
+    syncing.value = false
     alert('同步失敗：' + err.message)
   })
 }
