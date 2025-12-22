@@ -1,6 +1,7 @@
 # Discord Server Manager
 
 視覺化的 Discord 頻道結構管理工具，基於 Electron + Vue + Vuetify。支援匯入/匯出模板、同步伺服器頻道（新增/更新/刪除）、備份設定，讓多人協作管理更直覺。
+<img width="1722" height="1107" alt="image" src="https://github.com/user-attachments/assets/4f2929b4-1a9e-4447-bf8a-35a1701ba925" />
 
 ## 功能亮點
 - 圖形化編輯分類與頻道（文字、語音、公告等）
