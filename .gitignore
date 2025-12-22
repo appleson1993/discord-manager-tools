@@ -1,0 +1,7 @@
+node_modules
+dist
+.env
+config/*.json
+!config/templates/
+*.log
+.DS_Store
